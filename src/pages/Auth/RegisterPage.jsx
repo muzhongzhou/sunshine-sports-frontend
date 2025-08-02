@@ -98,8 +98,8 @@ const RegisterPage = () => {
                         rules={[{ required: true, message: '请选择您的身份!' }]}
                     >
                         <Select placeholder="选择身份">
-                            <Option value="student">学生</Option>
-                            <Option value="teacher">老师</Option>
+                            <Option value="学生">学生</Option>
+                            <Option value="老师">老师</Option>
                         </Select>
                     </Form.Item>
 
