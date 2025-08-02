@@ -36,11 +36,11 @@ const CommentForm = ({ onSubmit, submitting }) => {
 };
 
 const VenueDetailPage = () => {
-    const { vid } = useParams(); // 获取场馆ID
+    const { vid } = useParams();
     const navigate = useNavigate();
     const { user, token, isLoading: authLoading } = useAuth();
     const [venueDetails, setVenueDetails] = useState(null);
-    const [sports, setSports] = useState([]); // 新增状态：存储运动项目列表
+    const [sports, setSports] = useState([]);
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [bookingLoading, setBookingLoading] = useState(false);
@@ -53,28 +53,21 @@ const VenueDetailPage = () => {
         }
     }, [token, authLoading, navigate]);
 
-    // 修正: 分步获取场馆详情和运动项目
     useEffect(() => {
         const fetchDetails = async () => {
             setLoading(true);
             try {
-                // 1. 获取场馆详情
                 const venueResponse = await api.get(`/venue/${vid}`);
-                // 修正: 接口返回的场馆详情在 data 字段中
                 setVenueDetails(venueResponse.data.data);
 
-                // 2. 根据场馆ID，获取运动项目列表
                 const sportsResponse = await api.get('/sport/list', { params: { venueId: vid } });
-                // 修正: 接口返回的运动项目在 data 字段中
                 setSports(sportsResponse.data.data);
 
-                // 3. 获取评论列表
-                const commentsResponse = await api.get(`/comment/list?venueId=${vid}`);
-                // 修正: 接口返回的评论在 data 字段中
+                const commentsResponse = await api.get(`/comment/list`,{ params: { venueId: vid } });
                 setComments(commentsResponse.data.data);
             } catch (error) {
                 message.error(error.response?.data?.message || '获取详情失败，请检查网络');
-                navigate('/home'); // 失败则返回主页
+                navigate('/home');
             } finally {
                 setLoading(false);
             }
@@ -85,7 +78,6 @@ const VenueDetailPage = () => {
         }
     }, [vid, token, navigate]);
 
-    // 处理预约报名
     const handleBook = async (sportId, timeSlot) => {
         if (user.role !== 'student') {
             message.warning('只有学生可以进行预约报名。');
@@ -107,7 +99,6 @@ const VenueDetailPage = () => {
         }
     };
 
-    // 处理评论提交
     const handleCommentSubmit = async (content) => {
         if (!user) {
             message.warning('请登录后发表评论。');
@@ -142,9 +133,8 @@ const VenueDetailPage = () => {
         return <div className="p-8 text-center text-gray-500">未找到该场馆信息。</div>;
     }
 
-    // 修正: 遍历 sports 状态来生成 Tabs
     const sportItems = sports.map(sport => ({
-        key: sport.sid.toString(), // 修正: 使用 sid 作为 key
+        key: sport.sid.toString(),
         label: sport.name,
         children: (
             <div className="p-4 bg-white rounded-lg shadow-inner">
@@ -154,7 +144,7 @@ const VenueDetailPage = () => {
                             key={slot}
                             value={slot}
                             className="w-full sm:w-auto text-center"
-                            onClick={() => handleBook(sport.sid, slot)} // 修正: 使用 sid
+                            onClick={() => handleBook(sport.sid, slot)}
                             disabled={user?.role !== 'student' || bookingLoading}
                         >
                             {slot}
@@ -181,7 +171,6 @@ const VenueDetailPage = () => {
                     </Card>
 
                     <Card title="活动预约" className="shadow-lg mb-8">
-                        {/* 修正: 检查 sports 列表是否为空 */}
                         {sports.length > 0 ? (
                             <Tabs defaultActiveKey={sports[0]?.sid.toString()} items={sportItems} />
                         ) : (
@@ -198,7 +187,8 @@ const VenueDetailPage = () => {
                             dataSource={comments}
                             renderItem={item => (
                                 <Comment
-                                    author={item.user.name}
+                                    // 修正：检查 item.user 是否存在，否则显示备选文本
+                                    author={item.user?.name || `用户 ${item.userId}`}
                                     avatar={<UserOutlined />}
                                     content={<p>{item.content}</p>}
                                     datetime={item.createdAt}
