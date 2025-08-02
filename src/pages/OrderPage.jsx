@@ -1,5 +1,5 @@
 // src/pages/OrderPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {Layout, message, Spin, Card, Table, Button, Space, Tag, Popconfirm, Typography, Empty, List} from 'antd';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Layout/Header';
@@ -14,6 +14,7 @@ const OrderPage = () => {
     const { user, token, isLoading: authLoading } = useAuth();
     const [loading, setLoading] = useState(true);
     const [studentReservations, setStudentReservations] = useState([]);
+    const [studentOrders, setStudentOrders] = useState([]);
     const [teacherOrders, setTeacherOrders] = useState([]);
 
     useEffect(() => {
@@ -22,44 +23,60 @@ const OrderPage = () => {
         }
     }, [token, authLoading, navigate]);
 
-    // 获取学生预约列表
-    const fetchStudentReservations = async () => {
+    // 修正：使用 useCallback 缓存数据获取函数，并指定其依赖
+    const fetchStudentReservations = useCallback(async () => {
         setLoading(true);
         try {
             const response = await api.get('/reservation/list');
-            setStudentReservations(response.data.data || []);
+            const pendingReservations = (response.data.data || []).filter(
+                (reservation) => reservation.status === '待上传'
+            );
+            setStudentReservations(pendingReservations);
         } catch (error) {
             message.error(error.response?.data?.message || '获取预约列表失败');
         } finally {
             setLoading(false);
         }
-    };
+    }, [setStudentReservations, setLoading]);
 
-    // 获取老师订单列表
-    const fetchTeacherOrders = async () => {
+    const fetchStudentOrders = useCallback(async () => {
         setLoading(true);
         try {
             const response = await api.get('/order/list');
-            // 修正：从 response.data 中获取数据，而不是 response.data.data
+            const filteredOrders = (response.data || []).filter(
+                (order) => order.user.uid === user?.uid
+            );
+            setStudentOrders(filteredOrders);
+        } catch (error) {
+            message.error(error.response?.data?.message || '获取订单列表失败');
+        } finally {
+            setLoading(false);
+        }
+    }, [user, setStudentOrders, setLoading]); // 依赖 user 对象
+
+    const fetchTeacherOrders = useCallback(async () => {
+        setLoading(true);
+        try {
+            const response = await api.get('/order/list');
             setTeacherOrders(response.data || []);
         } catch (error) {
             message.error(error.response?.data?.message || '获取订单列表失败');
         } finally {
             setLoading(false);
         }
-    };
+    }, [setTeacherOrders, setLoading]);
 
     useEffect(() => {
         if (token && user) {
             if (user.role === 'student') {
                 fetchStudentReservations();
+                fetchStudentOrders();
             } else if (user.role === 'teacher') {
                 fetchTeacherOrders();
             }
         }
-    }, [token, user]);
+    }, [token, user, fetchStudentReservations, fetchStudentOrders, fetchTeacherOrders]);
 
-    // 学生删除预约
     const handleDeleteReservation = async (reservationId) => {
         try {
             await api.delete('/reservation/delete', {
@@ -74,7 +91,6 @@ const OrderPage = () => {
         }
     };
 
-    // 学生创建订单
     const handleCreateOrder = async () => {
         if (studentReservations.length === 0) {
             message.warning('您没有待处理的预约可创建订单。');
@@ -84,22 +100,17 @@ const OrderPage = () => {
             await api.post('/order/create', { reservations: studentReservations.map(r => r.rid) });
             message.success('订单创建成功，等待老师审批。');
             fetchStudentReservations();
+            fetchStudentOrders();
         } catch (error) {
             message.error(error.response?.data?.message || '订单创建失败，请稍后重试');
         }
     };
 
-    // 老师审批订单
     const handleApproveOrder = async (orderId, status) => {
         try {
-            // 将字符串状态转换为布尔值
             const isApproved = status === 'approved';
-
-            // 使用 isApproved 发送请求
             await api.post(`/order/approve`, { oid: orderId, approve: isApproved });
-
-            // 使用 isApproved 来确定成功消息
-            message.success(`订单已${isApproved ? '已审批-通过' : '已审批-拒绝'}`);
+            message.success(`订单已${isApproved ? '审批通过' : '拒绝'}`);
             fetchTeacherOrders();
         } catch (error) {
             message.error(error.response?.data?.message || '操作失败，请稍后重试');
@@ -128,18 +139,16 @@ const OrderPage = () => {
         },
     ];
 
-    const teacherColumns = [
-        { title: '学生姓名', dataIndex: ['user', 'name'], key: 'userName' },
+    const studentOrderColumns = [
+        { title: '订单ID', dataIndex: 'oid', key: 'oid' },
         {
             title: '订单详情',
             key: 'details',
             render: (_, record) => (
                 <List
                     size="small"
-                    // 修正：从 record.orderReservations 中获取列表
                     dataSource={record.orderReservations || []}
                     renderItem={item => (
-                        // 修正：使用 item.reservation 中的嵌套数据
                         <List.Item>
                             {item.reservation.venue.name} - {item.reservation.sport.name} - {item.reservation.timeSlot}
                         </List.Item>
@@ -152,8 +161,37 @@ const OrderPage = () => {
             dataIndex: 'status',
             key: 'status',
             render: (status) => (
-                <Tag color={status === 'approved' ? 'success' : (status === '已提交' ? 'processing' : 'error')}>
-                    {status === 'approved' ? '已通过' : (status === '已提交' ? '待审批' : '已拒绝')}
+                <Tag color={status === '已审批-同意' ? 'success' : (status === '已提交' ? 'processing' : 'error')}>
+                    {status}
+                </Tag>
+            ),
+        },
+    ];
+
+    const teacherColumns = [
+        { title: '学生姓名', dataIndex: ['user', 'name'], key: 'userName' },
+        {
+            title: '订单详情',
+            key: 'details',
+            render: (_, record) => (
+                <List
+                    size="small"
+                    dataSource={record.orderReservations || []}
+                    renderItem={item => (
+                        <List.Item>
+                            {item.reservation.venue.name} - {item.reservation.sport.name} - {item.reservation.timeSlot}
+                        </List.Item>
+                    )}
+                />
+            ),
+        },
+        {
+            title: '状态',
+            dataIndex: 'status',
+            key: 'status',
+            render: (status) => (
+                <Tag color={status === '已审批-同意' ? 'success' : (status === '已提交' ? 'processing' : 'error')}>
+                    {status}
                 </Tag>
             ),
         },
@@ -234,6 +272,16 @@ const OrderPage = () => {
                                         </Button>
                                     </Popconfirm>
                                 </div>
+                                <h3 className="text-xl font-semibold mt-8 mb-4">我的订单</h3>
+                                {studentOrders.length > 0 ? (
+                                    <Table
+                                        columns={studentOrderColumns}
+                                        dataSource={studentOrders}
+                                        rowKey="oid"
+                                    />
+                                ) : (
+                                    <Empty description="您还没有任何已提交的订单。" />
+                                )}
                             </>
                         ) : (
                             <>
